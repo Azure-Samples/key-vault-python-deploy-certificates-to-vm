@@ -1,9 +1,8 @@
-import base64
-import binascii
+"""Deploy Certificates to VMs from customer-managed Key Vault in Python.
+"""
 import logging
 import os
 import time
-import uuid
 
 from haikunator import Haikunator
 
@@ -15,10 +14,12 @@ from azure.mgmt.network import NetworkManagementClient
 from azure.mgmt.keyvault import KeyVaultManagementClient
 from azure.keyvault import KeyVaultClient
 from azure.keyvault.models import *
+from azure.graphrbac import GraphRbacManagementClient
 
-haikunator = Haikunator()
+HAIKUNATOR = Haikunator()
 
-logging.basicConfig(level=logging.DEBUG)
+# Activate this if you want to see detailed log
+# logging.basicConfig(level=logging.DEBUG)
 
 # Resource
 
@@ -27,11 +28,12 @@ GROUP_NAME = 'azure-kv-vm-certificate-sample-group'
 
 # KeyVault
 
-KV_NAME = haikunator.haikunate() # Random name to avoid collision executing this sample
+KV_NAME = HAIKUNATOR.haikunate() # Random name to avoid collision executing this sample
 
-# This default Certificate creation policy was obtained by using CLI 2.0
-# az keyvault certificate get-default-policy
-DEFAULT_POLICY =  CertificatePolicy(
+# This default Certificate creation policy. This is the same policy that:
+# - Is pre-configured in the Portal when you choose "Generate" in the Certificates tab
+# - You get when you use the CLI 2.0: az keyvault certificate get-default-policy
+DEFAULT_POLICY = CertificatePolicy(
     KeyProperties(True, 'RSA', 2048, True),
     SecretProperties('application/x-pkcs12'),
     issuer_parameters=IssuerParameters('Self'),
@@ -115,8 +117,9 @@ def run_example():
     )
     print_item(resource_group)
 
-Solve
-'https://graph.windows.net/72f988bf-86f1-41af-91ab-2d7cd011db47/servicePrincipals?$filter=servicePrincipalNames%2Fany%28c%3Ac%20eq%20%2765fa0d3a-145a-4e86-997b-651a09112264%27%29&api-version=1.6'
+    # Resolve the client_id as object_id for KeyVault access policy.
+    # If you already know your object_id, you can skip this part
+    sp_object_id = resolve_service_principal(os.environ['AZURE_CLIENT_ID'])
 
     # Create Key Vault account
     print('\nCreate Key Vault account')
@@ -132,7 +135,7 @@ Solve
                 'tenant_id': os.environ['AZURE_TENANT_ID'],
                 'access_policies': [{
                     'tenant_id': os.environ['AZURE_TENANT_ID'],
-                    'object_id': "XXXX",
+                    'object_id': sp_object_id,
                     'permissions': {
                         # Only "certificates" and "secrets" are needed for this sample
                         'certificates': ['all'],
@@ -144,10 +147,10 @@ Solve
             }
         }
     )
+    print_item(vault)
 
     # # KeyVault recommentation is to wait 20 seconds after account creation for DNS update
     time.sleep(20)
-    # vault = kv_mgmt_client.vaults.get(GROUP_NAME, KV_NAME)
 
     # Ask KeyVault to create a Certificate
     certificate_name = "cert1"
@@ -170,6 +173,7 @@ Solve
         except KeyboardInterrupt:
             print("Certificate creation wait cancelled.")
             raise        
+    print_item(check)
 
     print('\nGet Key Vault created certificate as a secret')
     certificate_as_secret = kv_client.get_secret(
@@ -177,10 +181,11 @@ Solve
         certificate_name,
         "" # Latest version
     )
+    print_item(certificate_as_secret)
 
     print("\nCreate Network")
     # Create Network components of the VM
-    # This is not MSI related and is just required to create the VM
+    # This is not related to the main topic of this sample and is just required to create the VM
     subnet = create_virtual_network(network_client)
     public_ip = create_public_ip(network_client)
     nic = create_network_interface(network_client, subnet, public_ip)
@@ -196,7 +201,7 @@ Solve
             'admin_username': ADMIN_LOGIN,
             'admin_password': ADMIN_PASSWORD,
             'computer_name': 'testkvcertificates',
-            # This is the Key Vault interesting part
+            # This is the Key Vault critical part
             'secrets': [{
                 'source_vault': {
                     'id': vault.id,
@@ -223,7 +228,6 @@ Solve
         PUBLIC_IP_NAME
     )
 
-
     print("You can connect to the VM using:")
     print("ssh {}@{}".format(
         ADMIN_LOGIN,
@@ -231,7 +235,8 @@ Solve
     ))
     print("And password: {}\n".format(ADMIN_PASSWORD))
 
-    print("Your certificate is available in this folder: /var/lib/waagent\n")
+    print("Your certificate is available in this folder: /var/lib/waagent")
+    print("You must be root to see it (sudo su)\n")
 
     input("Press enter to delete this Resource Group.")
 
@@ -243,7 +248,8 @@ Solve
 
 def print_item(group):
     """Print a ResourceGroup instance."""
-    print("\tName: {}".format(group.name))
+    if hasattr(group, 'name'):
+        print("\tName: {}".format(group.name))
     print("\tId: {}".format(group.id))
     if hasattr(group, 'location'):
         print("\tLocation: {}".format(group.location))
@@ -256,22 +262,30 @@ def print_properties(props):
         print("\t\tProvisioning State: {}".format(props.provisioning_state))
     print("\n\n")
 
-def b64_to_hex(s):
+def resolve_service_principal(identifier):
+    """Get an object_id from a client_id.
     """
-    Decodes a string to base64 on 2.x and 3.x
-    :param str s: base64 encoded string
-    :return: uppercase hex string
-    :rtype: str
-    """
-    decoded = base64.b64decode(s)
-    hex_data = binascii.hexlify(decoded).upper()
-    if isinstance(hex_data, bytes):
-        return str(hex_data.decode("utf-8"))
-    return hex_data
+    graphrbac_credentials = ServicePrincipalCredentials(
+        client_id=os.environ['AZURE_CLIENT_ID'],
+        secret=os.environ['AZURE_CLIENT_SECRET'],
+        tenant=os.environ['AZURE_TENANT_ID'],
+        resource="https://graph.windows.net"
+    )
+    graphrbac_client = GraphRbacManagementClient(
+        graphrbac_credentials,
+        os.environ['AZURE_TENANT_ID']
+    )
+    
+    result = list(graphrbac_client.service_principals.list(filter="servicePrincipalNames/any(c:c eq '{}')".format(identifier)))
+    if result:
+        return result[0].object_id
+    raise RuntimeError("Unable to get object_id from client_id")
 
 ###### Network creation, not specific to MSI scenario ######
 
 def create_virtual_network(network_client):
+    """Usual VNet creation.
+    """
     params_create = {
         'location': LOCATION,
         'address_space': {
@@ -296,6 +310,8 @@ def create_virtual_network(network_client):
     )
 
 def create_public_ip(network_client):
+    """Usual PublicIP creation.
+    """
     params_create = {
         'location': LOCATION,
         'public_ip_allocation_method': 'dynamic',
@@ -308,6 +324,8 @@ def create_public_ip(network_client):
     return pip_poller.result()
 
 def create_network_interface(network_client, subnet, public_ip):
+    """Usual create NIC.
+    """
     params_create = {
         'location': LOCATION,
         'ip_configurations': [{
