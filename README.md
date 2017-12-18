@@ -9,14 +9,6 @@ author: lmazuel
 This sample explains how you can create a VM in Python, with certificates installed automatically 
 from a Key Vault account.
 
-## Features
-
-This project framework provides the following features:
-
-* Feature 1
-* Feature 2
-* ...
-
 ## Getting Started
 
 ### Prerequisites
@@ -32,7 +24,7 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
 
 1.  If you don't already have it, [install Python](https://www.python.org/downloads/).
 
-    This sample (and the SDK) is compatible with Python 2.7, 3.3, 3.4, 3.5 and 3.6.
+    This sample (and the SDK) is compatible with Python 2.7, 3.4, 3.5 and 3.6.
 
 2.  We recommend that you use a [virtual environment](https://docs.python.org/3/tutorial/venv.html)
     to run this example, but it's not required.
@@ -129,6 +121,8 @@ You can also found different example on how to create a Key Vault account:
 > In order to execute this sample, your Key Vault account MUST have the "enabled-for-deployment" special permission.
   The EnabledForDeployment flag explicitly gives Azure (Microsoft.Compute resource provider) permission to use the certificates stored as secrets for this deployment. 
 
+> Note that access policy takes an *object_id*, not a client_id as parameter. This samples also provide a quick way to convert a Service Principal client_id to an object_id using the `azure-graphrbac` client.
+
 ### Ask Key Vault to create a certificate for you
 
 ```python
@@ -176,6 +170,16 @@ This is the same policy that:
 > Create certificate is an async operation. This sample provides a simple polling mechanism example.
 
 ### Create a VM with Certificates from Key Vault
+
+First, get your certificate as a Secret object:
+
+```python
+    certificate_as_secret = kv_client.get_secret(
+        vault.properties.vault_uri,
+        certificate_name,
+        "" # Latest version
+    )
+```
 
 During the creation of the VM, use the `secrets` atribute to assign your certificate:.
 
