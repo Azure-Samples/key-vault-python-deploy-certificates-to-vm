@@ -41,13 +41,13 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
 1.  Clone the repository.
 
     ```
-    git clone https://github.com/Azure-Samples/app-service-msi-keyvault-python.git
+    git clone https://github.com/Azure-Samples/key-vault-python-deploy-certificates-to-vm.git
     ```
 
 2.  Install the dependencies using pip.
 
     ```
-    cd app-service-msi-keyvault-python
+    cd key-vault-python-deploy-certificates-to-vm
     pip install -r requirements.txt
     ```
 
