@@ -6,7 +6,7 @@ author: lmazuel
 
 # Deploy Certificates to VMs from customer-managed Key Vault in Python
 
-This sample explains how you can create a VM in Python, with certificates installed automatically 
+This sample explains how you can create a VM in Python, with certificates installed automatically
 from a Key Vault account.
 
 ## Getting Started
@@ -24,7 +24,7 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
 
 1.  If you don't already have it, [install Python](https://www.python.org/downloads/).
 
-    This sample (and the SDK) is compatible with Python 2.7, 3.4, 3.5 and 3.6.
+    This sample (and the SDK) is compatible with Python 2.7, 3.4, 3.5, 3.6 and 3.7.
 
 2.  We recommend that you use a [virtual environment](https://docs.python.org/3/tutorial/venv.html)
     to run this example, but it's not required.
@@ -119,7 +119,7 @@ You can also found different example on how to create a Key Vault account:
   - From Python SDK: https://github.com/Azure-Samples/key-vault-python-manage
 
 > In order to execute this sample, your Key Vault account MUST have the "enabled-for-deployment" special permission.
-  The EnabledForDeployment flag explicitly gives Azure (Microsoft.Compute resource provider) permission to use the certificates stored as secrets for this deployment. 
+  The EnabledForDeployment flag explicitly gives Azure (Microsoft.Compute resource provider) permission to use the certificates stored as secrets for this deployment.
 
 > Note that access policy takes an *object_id*, not a client_id as parameter. This samples also provide a quick way to convert a Service Principal client_id to an object_id using the `azure-graphrbac` client.
 
@@ -136,9 +136,14 @@ You can also found different example on how to create a Key Vault account:
 An example of `DEFAULT_POLICY` is described in the sample file:
 ```python
 DEFAULT_POLICY = CertificatePolicy(
-    KeyProperties(True, 'RSA', 2048, True),
-    SecretProperties('application/x-pkcs12'),
-    issuer_parameters=IssuerParameters('Self'),
+    key_properties=KeyProperties(
+        exportable=True,
+        key_type='RSA',
+        key_size=2048,
+        reuse_key=True
+    ),
+    secret_properties=SecretProperties(content_type='application/x-pkcs12'),
+    issuer_parameters=IssuerParameters(name='Self'),
     x509_certificate_properties=X509CertificateProperties(
         subject='CN=CLIGetDefaultPolicy',
         validity_in_months=12,

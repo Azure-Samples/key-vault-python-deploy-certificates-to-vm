@@ -1,7 +1,7 @@
-azure-mgmt-resource>=1.1.0
-azure-mgmt-compute>=2.1.0
-azure-mgmt-network>=1.4.0
-azure-mgmt-keyvault>=0.40.0
-azure-keyvault>=0.3.7
-azure-graphrbac>=0.33.0
+azure-mgmt-resource>=2.0.0
+azure-mgmt-compute>=4.0.1
+azure-mgmt-network>=2.1.0
+azure-mgmt-keyvault>=1.1.0
+azure-keyvault>=1.1.0
+azure-graphrbac>=0.40.0
 haikunator

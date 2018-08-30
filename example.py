@@ -34,9 +34,14 @@ KV_NAME = HAIKUNATOR.haikunate() # Random name to avoid collision executing this
 # - Is pre-configured in the Portal when you choose "Generate" in the Certificates tab
 # - You get when you use the CLI 2.0: az keyvault certificate get-default-policy
 DEFAULT_POLICY = CertificatePolicy(
-    KeyProperties(True, 'RSA', 2048, True),
-    SecretProperties('application/x-pkcs12'),
-    issuer_parameters=IssuerParameters('Self'),
+    key_properties=KeyProperties(
+        exportable=True,
+        key_type='RSA',
+        key_size=2048,
+        reuse_key=True
+    ),
+    secret_properties=SecretProperties(content_type='application/x-pkcs12'),
+    issuer_parameters=IssuerParameters(name='Self'),
     x509_certificate_properties=X509CertificateProperties(
         subject='CN=CLIGetDefaultPolicy',
         validity_in_months=12,
@@ -123,7 +128,7 @@ def run_example():
 
     # Create Key Vault account
     print('\nCreate Key Vault account')
-    vault = kv_mgmt_client.vaults.create_or_update(
+    async_vault_poller = kv_mgmt_client.vaults.create_or_update(
         GROUP_NAME,
         KV_NAME,
         {
@@ -147,6 +152,7 @@ def run_example():
             }
         }
     )
+    vault = async_vault_poller.result()
     print_item(vault)
 
     # # KeyVault recommentation is to wait 20 seconds after account creation for DNS update
@@ -172,7 +178,7 @@ def run_example():
             time.sleep(10)
         except KeyboardInterrupt:
             print("Certificate creation wait cancelled.")
-            raise        
+            raise
     print_item(check)
 
     print('\nGet Key Vault created certificate as a secret')
@@ -275,7 +281,7 @@ def resolve_service_principal(identifier):
         graphrbac_credentials,
         os.environ['AZURE_TENANT_ID']
     )
-    
+
     result = list(graphrbac_client.service_principals.list(filter="servicePrincipalNames/any(c:c eq '{}')".format(identifier)))
     if result:
         return result[0].object_id
