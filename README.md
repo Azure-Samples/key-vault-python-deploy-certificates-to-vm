@@ -1,7 +1,12 @@
 ---
-services: virtual-machines, key-vault
-platforms: python
-author: lmazuel
+page_type: sample
+languages:
+- python
+products:
+- azure
+description: "This sample explains how you can create a VM in Python, with certificates installed automatically
+from a Key Vault account."
+urlFragment: key-vault-python-deploy-certificates-to-vm
 ---
 
 # Deploy Certificates to VMs from customer-managed Key Vault in Python
