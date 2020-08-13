@@ -29,20 +29,19 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
 
 1.  If you don't already have it, [install Python](https://www.python.org/downloads/).
 
-    This sample (and the SDK) is compatible with Python 2.7, 3.4, 3.5, 3.6 and 3.7.
+    This sample (and the SDK) is compatible with Python 2.7, and 3.5+.
 
 2.  We recommend that you use a [virtual environment](https://docs.python.org/3/tutorial/venv.html)
     to run this example, but it's not required.
     Install and initialize the virtual environment with the "venv" module on Python 3 (you must install [virtualenv](https://pypi.python.org/pypi/virtualenv) for Python 2.7):
 
     ```
-    python -m venv mytestenv # Might be "python3" or "py -3.6" depending on your Python installation
-    cd mytestenv
-    source bin/activate      # Linux shell (Bash, ZSH, etc.) only
-    ./scripts/activate       # PowerShell only
-    ./scripts/activate.bat   # Windows CMD only
+    python -m venv env # Might be "python3" or "py -3.6" depending on your Python installation
+    source env/bin/activate    # Linux shell (Bash, ZSH, etc.) only
+    env/scripts/activate       # PowerShell only
+    env/scripts/activate.bat   # Windows CMD only
     ```
-
+    
 1.  Clone the repository.
 
     ```
@@ -61,6 +60,7 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
     ```
     export AZURE_TENANT_ID={your tenant id}
     export AZURE_CLIENT_ID={your client id}
+    export AZURE_CLIENT_OBJECT_ID={your client object id}
     export AZURE_CLIENT_SECRET={your client secret}
     export AZURE_SUBSCRIPTION_ID={your subscription id}
     ```
@@ -92,30 +92,30 @@ For details about creation of these components, you can refer to the generic sam
 ### Creating a KeyVault account enabled for deployment
 
 ```python
-    vault = kv_mgmt_client.vaults.create_or_update(
-        GROUP_NAME,
-        KV_NAME,
-        {
-            'location': LOCATION,
-            'properties': {
-                'sku': {
-                    'name': 'standard'
-                },
+vault = kv_mgmt_client.vaults.begin_create_or_update(
+    GROUP_NAME,
+    KV_NAME,
+    {
+        'location': LOCATION,
+        'properties': {
+            'sku': {
+                'name': 'standard'
+            },
+            'tenant_id': os.environ['AZURE_TENANT_ID'],
+            'access_policies': [{
                 'tenant_id': os.environ['AZURE_TENANT_ID'],
-                'access_policies': [{
-                    'tenant_id': os.environ['AZURE_TENANT_ID'],
-                    'object_id': sp_object_id,
-                    'permissions': {
-                        # Only "certificates" and "secrets" are needed for this sample
-                        'certificates': ['all'],
-                        'secrets': ['all']
-                    }
-                }],
-                # Critical to allow the VM to download certificates later
-                'enabled_for_deployment': True
-            }
+                'object_id': sp_object_id,
+                'permissions': {
+                    # Only "certificates" and "secrets" are needed for this sample
+                    'certificates': ['all'],
+                    'secrets': ['all']
+                }
+            }],
+            # Critical to allow the VM to download certificates later
+            'enabled_for_deployment': True
         }
-    )
+    }
+)
 ```
 
 You can also found different example on how to create a Key Vault account:
@@ -126,49 +126,39 @@ You can also found different example on how to create a Key Vault account:
 > In order to execute this sample, your Key Vault account MUST have the "enabled-for-deployment" special permission.
   The EnabledForDeployment flag explicitly gives Azure (Microsoft.Compute resource provider) permission to use the certificates stored as secrets for this deployment.
 
-> Note that access policy takes an *object_id*, not a client_id as parameter. This samples also provide a quick way to convert a Service Principal client_id to an object_id using the `azure-graphrbac` client.
+> Note that access policy takes an *object_id*, not a client_id as parameter. 
 
 ### Ask Key Vault to create a certificate for you
 
 ```python
-    kv_client.create_certificate(
-        vault.properties.vault_uri,
-        certificate_name,
-        certificate_policy=DEFAULT_POLICY
-    )
+cert_client.begin_create_certificate(
+    certificate_name,
+    certificate_policy=DEFAULT_POLICY
+)
 ```
 
 An example of `DEFAULT_POLICY` is described in the sample file:
 ```python
 DEFAULT_POLICY = CertificatePolicy(
-    key_properties=KeyProperties(
-        exportable=True,
-        key_type='RSA',
-        key_size=2048,
-        reuse_key=True
-    ),
-    secret_properties=SecretProperties(content_type='application/x-pkcs12'),
-    issuer_parameters=IssuerParameters(name='Self'),
-    x509_certificate_properties=X509CertificateProperties(
-        subject='CN=CLIGetDefaultPolicy',
-        validity_in_months=12,
-        key_usage=[
-            "cRLSign",
-            "dataEncipherment",
-            "digitalSignature",
-            "keyEncipherment",
-            "keyAgreement",
-            "keyCertSign"
-        ]
-    ),
-    lifetime_actions=[{
-        "action": Action(
-            action_type="AutoRenew"
-        ),
-        "trigger": Trigger(
-            days_before_expiry=90
-        )
-    }]
+    'Self',
+    exportable=True,
+    key_type='RSA',
+    key_size=2048,
+    reuse_key=True,
+    content_type='application/x-pkcs12',
+    subject='CN=CLIGetDefaultPolicy',
+    validity_in_months=12,
+    key_usage=[
+        "cRLSign",
+        "dataEncipherment",
+        "digitalSignature",
+        "keyEncipherment",
+        "keyAgreement",
+        "keyCertSign"
+    ],
+    lifetime_actions=[
+        LifetimeAction(action=CertificatePolicyAction.auto_renew, days_before_expiry=90)
+    ]
 )
 ```
 
@@ -184,14 +174,13 @@ This is the same policy that:
 First, get your certificate as a Secret object:
 
 ```python
-    certificate_as_secret = kv_client.get_secret(
-        vault.properties.vault_uri,
-        certificate_name,
-        "" # Latest version
-    )
+certificate_as_secret = secret_client.get_secret(
+    certificate_name,
+    ""  # Latest version
+)
 ```
 
-During the creation of the VM, use the `secrets` atribute to assign your certificate:.
+During the creation of the VM, use the `secrets` attribute to assign your certificate:.
 
 ```python
 params_create = {
@@ -215,7 +204,7 @@ params_create = {
     }
 }
 
-vm_poller = compute_client.virtual_machines.create_or_update(
+vm_poller = compute_client.virtual_machines.begin_create_or_update(
     GROUP_NAME,
     VM_NAME,
     params_create,
@@ -228,4 +217,4 @@ vm_result = vm_poller.result()
 
 - https://azure.microsoft.com/services/key-vault/
 - https://github.com/Azure/azure-sdk-for-python
-- https://docs.microsoft.com/python/api/overview/azure/key-vault
+- https://docs.microsoft.com/en-us/azure/key-vault/
