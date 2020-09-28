@@ -152,10 +152,11 @@ def run_example():
     # Ask KeyVault to create a Certificate
     certificate_name = "cert1"
     print('\nCreate Key Vault Certificate')
-    cert_client.begin_create_certificate(
+    certificate_poller = cert_client.begin_create_certificate(
         certificate_name,
         policy=DEFAULT_POLICY
     )
+    certificate_poller.wait()
     while True:
         check = cert_client.get_certificate_operation(certificate_name)
         if check.status != 'inProgress':

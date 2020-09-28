@@ -118,7 +118,7 @@ vault = kv_mgmt_client.vaults.begin_create_or_update(
 )
 ```
 
-You can also found different example on how to create a Key Vault account:
+You can also find different example on how to create a Key Vault account:
 
   - From CLI 2.0: https://docs.microsoft.com/azure/key-vault/key-vault-manage-with-cli2
   - From Python SDK: https://github.com/Azure-Samples/key-vault-python-manage
@@ -131,10 +131,11 @@ You can also found different example on how to create a Key Vault account:
 ### Ask Key Vault to create a certificate for you
 
 ```python
-cert_client.begin_create_certificate(
+certificate_poller = cert_client.begin_create_certificate(
     certificate_name,
-    certificate_policy=DEFAULT_POLICY
+    policy=DEFAULT_POLICY
 )
+certificate_poller.wait()
 ```
 
 An example of `DEFAULT_POLICY` is described in the sample file:
