@@ -5,6 +5,7 @@ import os
 import time
 
 from haikunator import Haikunator
+from six.moves import input
 
 from azure.identity import ClientSecretCredential
 

@@ -7,3 +7,4 @@ azure-keyvault-secrets==4.2.0
 azure-identity==1.4.0
 
 haikunator
+six
