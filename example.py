@@ -5,16 +5,16 @@ import os
 import time
 
 from haikunator import Haikunator
+from six.moves import input
 
-from azure.common.credentials import ServicePrincipalCredentials
+from azure.identity import ClientSecretCredential
 
 from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.compute import ComputeManagementClient
 from azure.mgmt.network import NetworkManagementClient
 from azure.mgmt.keyvault import KeyVaultManagementClient
-from azure.keyvault import KeyVaultClient
-from azure.keyvault.models import *
-from azure.graphrbac import GraphRbacManagementClient
+from azure.keyvault.certificates import LifetimeAction, CertificateClient, CertificatePolicy, CertificatePolicyAction
+from azure.keyvault.secrets import SecretClient
 
 HAIKUNATOR = Haikunator()
 
@@ -23,7 +23,7 @@ HAIKUNATOR = Haikunator()
 
 # Resource
 
-LOCATION = 'westus'
+LOCATION = 'westus2'
 GROUP_NAME = 'azure-kv-vm-certificate-sample-group'
 
 # KeyVault
@@ -35,34 +35,25 @@ KV_NAME = HAIKUNATOR.haikunate()
 # - Is pre-configured in the Portal when you choose "Generate" in the Certificates tab
 # - You get when you use the CLI 2.0: az keyvault certificate get-default-policy
 DEFAULT_POLICY = CertificatePolicy(
-    key_properties=KeyProperties(
-        exportable=True,
-        key_type='RSA',
-        key_size=2048,
-        reuse_key=True
-    ),
-    secret_properties=SecretProperties(content_type='application/x-pkcs12'),
-    issuer_parameters=IssuerParameters(name='Self'),
-    x509_certificate_properties=X509CertificateProperties(
-        subject='CN=CLIGetDefaultPolicy',
-        validity_in_months=12,
-        key_usage=[
-            "cRLSign",
-            "dataEncipherment",
-            "digitalSignature",
-            "keyEncipherment",
-            "keyAgreement",
-            "keyCertSign"
-        ]
-    ),
-    lifetime_actions=[{
-        "action": Action(
-            action_type="AutoRenew"
-        ),
-        "trigger": Trigger(
-            days_before_expiry=90
-        )
-    }]
+    'Self',
+    exportable=True,
+    key_type='RSA',
+    key_size=2048,
+    reuse_key=True,
+    content_type='application/x-pkcs12',
+    subject='CN=CLIGetDefaultPolicy',
+    validity_in_months=12,
+    key_usage=[
+        "cRLSign",
+        "dataEncipherment",
+        "digitalSignature",
+        "keyEncipherment",
+        "keyAgreement",
+        "keyCertSign"
+    ],
+    lifetime_actions=[
+        LifetimeAction(action=CertificatePolicyAction.auto_renew, days_before_expiry=90)
+    ]
 )
 
 # Network
@@ -86,6 +77,7 @@ ADMIN_PASSWORD = 'BaR@123' + GROUP_NAME
 #
 # AZURE_TENANT_ID: with your Azure Active Directory tenant id or domain
 # AZURE_CLIENT_ID: with your Azure Active Directory Application Client ID
+# AZURE_CLIENT_OBJECT_ID: with your Azure Active Directory Application Object ID
 # AZURE_CLIENT_SECRET: with your Azure Active Directory Application Secret
 # AZURE_SUBSCRIPTION_ID: with your Azure Subscription Id
 #
@@ -97,23 +89,20 @@ def run_example():
     subscription_id = os.environ.get(
         'AZURE_SUBSCRIPTION_ID',
         '11111111-1111-1111-1111-111111111111')  # your Azure Subscription Id
-    credentials = ServicePrincipalCredentials(
+    credential = ClientSecretCredential(
         client_id=os.environ['AZURE_CLIENT_ID'],
-        secret=os.environ['AZURE_CLIENT_SECRET'],
-        tenant=os.environ['AZURE_TENANT_ID']
+        client_secret=os.environ['AZURE_CLIENT_SECRET'],
+        tenant_id=os.environ['AZURE_TENANT_ID']
     )
-    resource_client = ResourceManagementClient(credentials, subscription_id)
-    compute_client = ComputeManagementClient(credentials, subscription_id)
-    network_client = NetworkManagementClient(credentials, subscription_id)
-    kv_mgmt_client = KeyVaultManagementClient(credentials, subscription_id)
+    resource_client = ResourceManagementClient(credential, subscription_id)
+    compute_client = ComputeManagementClient(credential, subscription_id)
+    network_client = NetworkManagementClient(credential, subscription_id)
+    kv_mgmt_client = KeyVaultManagementClient(credential, subscription_id)
 
-    kv_credentials = ServicePrincipalCredentials(
-        client_id=os.environ['AZURE_CLIENT_ID'],
-        secret=os.environ['AZURE_CLIENT_SECRET'],
-        tenant=os.environ['AZURE_TENANT_ID'],
-        resource="https://vault.azure.net"
+    cert_client = CertificateClient(
+        "https://{}.vault.azure.net".format(KV_NAME),
+        credential
     )
-    kv_client = KeyVaultClient(kv_credentials)
 
     # Create Resource group
     print('\nCreate Resource Group')
@@ -125,11 +114,13 @@ def run_example():
 
     # Resolve the client_id as object_id for KeyVault access policy.
     # If you already know your object_id, you can skip this part
-    sp_object_id = resolve_service_principal(os.environ['AZURE_CLIENT_ID'])
+    sp_object_id = os.environ.get(
+        'AZURE_CLIENT_OBJECT_ID',
+        '11111111-1111-1111-1111-111111111111')  # your service principal's object id
 
     # Create Key Vault account
     print('\nCreate Key Vault account')
-    async_vault_poller = kv_mgmt_client.vaults.create_or_update(
+    async_vault_poller = kv_mgmt_client.vaults.begin_create_or_update(
         GROUP_NAME,
         KV_NAME,
         {
@@ -162,16 +153,13 @@ def run_example():
     # Ask KeyVault to create a Certificate
     certificate_name = "cert1"
     print('\nCreate Key Vault Certificate')
-    kv_client.create_certificate(
-        vault.properties.vault_uri,
+    certificate_poller = cert_client.begin_create_certificate(
         certificate_name,
-        certificate_policy=DEFAULT_POLICY
+        policy=DEFAULT_POLICY
     )
+    certificate_poller.wait()
     while True:
-        check = kv_client.get_certificate_operation(
-            vault.properties.vault_uri,
-            certificate_name
-        )
+        check = cert_client.get_certificate_operation(certificate_name)
         if check.status != 'inProgress':
             break
         try:
@@ -183,8 +171,11 @@ def run_example():
     print_item(check)
 
     print('\nGet Key Vault created certificate as a secret')
-    certificate_as_secret = kv_client.get_secret(
-        vault.properties.vault_uri,
+    secret_client = SecretClient(
+        "https://{}.vault.azure.net".format(KV_NAME),
+        credential
+    )
+    certificate_as_secret = secret_client.get_secret(
         certificate_name,
         ""  # Latest version
     )
@@ -221,7 +212,7 @@ def run_example():
     }
 
     print("\nCreate VM")
-    vm_poller = compute_client.virtual_machines.create_or_update(
+    vm_poller = compute_client.virtual_machines.begin_create_or_update(
         GROUP_NAME,
         VM_NAME,
         params_create,
@@ -249,7 +240,7 @@ def run_example():
 
     # Delete Resource group and everything in it
     print('Delete Resource Group')
-    delete_async_operation = resource_client.resource_groups.delete(GROUP_NAME)
+    delete_async_operation = resource_client.resource_groups.begin_delete(GROUP_NAME)
     delete_async_operation.wait()
     print("\nDeleted: {}".format(GROUP_NAME))
 
@@ -271,27 +262,6 @@ def print_properties(props):
         print("\t\tProvisioning State: {}".format(props.provisioning_state))
     print("\n\n")
 
-
-def resolve_service_principal(identifier):
-    """Get an object_id from a client_id.
-    """
-    graphrbac_credentials = ServicePrincipalCredentials(
-        client_id=os.environ['AZURE_CLIENT_ID'],
-        secret=os.environ['AZURE_CLIENT_SECRET'],
-        tenant=os.environ['AZURE_TENANT_ID'],
-        resource="https://graph.windows.net"
-    )
-    graphrbac_client = GraphRbacManagementClient(
-        graphrbac_credentials,
-        os.environ['AZURE_TENANT_ID']
-    )
-
-    result = list(graphrbac_client.service_principals.list(
-        filter="servicePrincipalNames/any(c:c eq '{}')".format(identifier)))
-    if result:
-        return result[0].object_id
-    raise RuntimeError("Unable to get object_id from client_id")
-
 ###### Network creation, not specific to MSI scenario ######
 
 
@@ -308,7 +278,7 @@ def create_virtual_network(network_client):
             'address_prefix': '10.0.0.0/24',
         }],
     }
-    vnet_poller = network_client.virtual_networks.create_or_update(
+    vnet_poller = network_client.virtual_networks.begin_create_or_update(
         GROUP_NAME,
         VNET_NAME,
         params_create,
@@ -329,7 +299,7 @@ def create_public_ip(network_client):
         'location': LOCATION,
         'public_ip_allocation_method': 'dynamic',
     }
-    pip_poller = network_client.public_ip_addresses.create_or_update(
+    pip_poller = network_client.public_ip_addresses.begin_create_or_update(
         GROUP_NAME,
         PUBLIC_IP_NAME,
         params_create,
@@ -351,7 +321,7 @@ def create_network_interface(network_client, subnet, public_ip):
             }
         }]
     }
-    nic_poller = network_client.network_interfaces.create_or_update(
+    nic_poller = network_client.network_interfaces.begin_create_or_update(
         GROUP_NAME,
         NIC_NAME,
         params_create,
